@@ -18,7 +18,7 @@
   "threshold_pixel": 0.0026365266647189836,
   "threshold_feature": 1.692880377959227e-05,
   "threshold_combined": 0.24281708182693523,
-  "selected_threshold_method": "val95",
+  "selected_threshold_method": "pixel_val95",
   "selected_score": "pixel_score",
   "combined_pixel_weight": 0.4,
   "combined_feature_weight": 0.6,

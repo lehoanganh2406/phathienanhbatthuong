@@ -1,0 +1,63 @@
+[
+  {
+    "dataset": "hazelnut",
+    "train_good": 391,
+    "val_good": 79,
+    "test_total": 109,
+    "test_breakdown": {
+      "crack": 18,
+      "cut": 16,
+      "good": 40,
+      "hole": 18,
+      "print": 17
+    },
+    "notes": [
+      "Train chỉ có ảnh bình thường nên đây là bài toán one-class anomaly detection.",
+      "Test có cả ảnh good và nhiều dạng defect nên dữ liệu bị mất cân bằng.",
+      "Một số lỗi có kích thước nhỏ, khó phát hiện bằng pixel MSE đơn thuần.",
+      "Ảnh MVTec có chi tiết bề mặt phức tạp, cần so sánh pixel score, feature score và combined score."
+    ]
+  },
+  {
+    "dataset": "bottle",
+    "train_good": 209,
+    "val_good": 42,
+    "test_total": 83,
+    "test_breakdown": {
+      "broken_large": 20,
+      "broken_small": 22,
+      "contamination": 21,
+      "good": 20
+    },
+    "notes": [
+      "Train chỉ có ảnh bình thường nên đây là bài toán one-class anomaly detection.",
+      "Test có cả ảnh good và nhiều dạng defect nên dữ liệu bị mất cân bằng.",
+      "Một số lỗi có kích thước nhỏ, khó phát hiện bằng pixel MSE đơn thuần.",
+      "Ảnh MVTec có chi tiết bề mặt phức tạp, cần so sánh pixel score, feature score và combined score."
+    ]
+  },
+  {
+    "dataset": "cifar",
+    "normal_class": "airplane",
+    "train_good": 5000,
+    "val_good": 1000,
+    "test_total": 10000,
+    "test_breakdown": {
+      "cat": 1000,
+      "ship": 1000,
+      "good": 1000,
+      "frog": 1000,
+      "automobile": 1000,
+      "truck": 1000,
+      "dog": 1000,
+      "horse": 1000,
+      "deer": 1000,
+      "bird": 1000
+    },
+    "notes": [
+      "CIFAR-10 one-class là dataset tùy chọn.",
+      "Ảnh gốc 32x32 khi resize 256x256 có thể bị mờ.",
+      "Một số class anomaly có hình dạng gần giống normal class."
+    ]
+  }
+]

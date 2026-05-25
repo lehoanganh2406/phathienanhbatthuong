@@ -56,34 +56,35 @@ if torch.cuda.is_available():
 # =========================
 # HELPER
 # =========================
+# 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
-
+# Đếm số lượng tham số có thể huấn luyện của model
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-
+# Kiểm tra nếu path là file hợp lệ (không phải hidden file)
 def is_valid_file(path):
     return os.path.isfile(path) and not os.path.basename(path).startswith(".")
 
-
+# 
 def is_valid_dir(path):
     return os.path.isdir(path) and not os.path.basename(path).startswith(".")
 
-
+# Tiền xử lý ảnh: chuyển BGR sang RGB và resize về kích thước chuẩn
 def preprocess_bgr(img):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
     return img
 
-
+# Chuẩn hóa điểm số dựa trên min-max của tập tham chiếu (ví dụ: validation set)
 def normalize_by_ref(scores, ref_scores):
     mn = float(np.min(ref_scores))
     mx = float(np.max(ref_scores))
     return (scores - mn) / (mx - mn + 1e-8), mn, mx
 
-
+# Chuẩn hóa điểm số đã cho dựa trên min-max đã biết
 def normalize_with_minmax(score, mn, mx):
     return (score - mn) / (mx - mn + 1e-8)
 
@@ -91,32 +92,33 @@ def normalize_with_minmax(score, mn, mx):
 # =========================
 # MODEL 1 - BASELINE
 # =========================
+# Autoencoder đơn giản với kiến trúc encoder-decoder đối xứng, sử dụng convolution và transposed convolution.
 class ConvAutoEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-
+# Nén ảnh để để trích xuất đặc trưng
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, 3, 2, 1),
-            nn.BatchNorm2d(32),
-            nn.LeakyReLU(0.2),
+            nn.Conv2d(3, 32, 3, 2, 1), # 256x256 -> 128x128 trích xuất đặc trưng ở 32 kênh
+            nn.BatchNorm2d(32), # Chuẩn hóa batch giúp ổn định quá trình huấn luyện
+            nn.LeakyReLU(0.2), # Thêm phi tuyến giúp model học được các đặc trưng phức tạp hơn
 
-            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.Conv2d(32, 64, 3, 2, 1), # 128x128 -> 64x64 trích xuất đặc trưng ở 64 kênh
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2),
 
-            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.Conv2d(64, 128, 3, 2, 1), # 64x64 -> 32x32 trích xuất đặc trưng ở 128 kênh
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
 
-            nn.Conv2d(128, 256, 3, 2, 1),
+            nn.Conv2d(128, 256, 3, 2, 1), # 32x32 -> 16x16 trích xuất đặc trưng ở 256 kênh
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2),
         )
-
+# Giải nén đặc trưng để tái tạo ảnh
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1), # 16x16 -> 32x32 giải nén đặc trưng từ 256 kênh về 128 kênh
             nn.BatchNorm2d(128),
-            nn.ReLU(),
+            nn.ReLU(), # Sử dụng ReLU ở decoder để đảm bảo đầu ra không âm, giúp tái tạo ảnh tốt hơn
 
             nn.ConvTranspose2d(128, 64, 3, 2, 1, 1),
             nn.BatchNorm2d(64),
@@ -129,10 +131,10 @@ class ConvAutoEncoder(nn.Module):
             nn.ConvTranspose2d(32, 3, 3, 2, 1, 1),
             nn.Sigmoid(),
         )
-
+# Hàm forward đơn giản: đưa ảnh qua encoder để trích xuất đặc trưng, sau đó qua decoder để tái tạo ảnh
     def forward(self, x):
         return self.decoder(self.encoder(x))
-
+# Hàm để lấy đặc trưng từ encoder, dùng để tính feature score sau này
     def get_features(self, x):
         return self.encoder(x)
 
@@ -140,6 +142,7 @@ class ConvAutoEncoder(nn.Module):
 # =========================
 # MODEL 2 - ADVANCED
 # =========================
+# SEBlock giúp Model tự học xem feature nào quan trọng thì chú ý nhiều hơn (crack, bề mặt), feature nào ít quan trọng thì giảm bớt(nền, nhiễu).
 class SEBlock(nn.Module):
     def __init__(self, ch, r=8):
         super().__init__()
@@ -159,7 +162,8 @@ class SEBlock(nn.Module):
         w = self.fc(w).view(b, c, 1, 1)
         return x * w
 
-
+# ResBlock với skip connection giúp model học được các đặc trưng phức tạp hơn và gradient ổn định.
+# Giữ lại thông tin đặc trưng ban đầu và chỉ học thêm phần đặc trưng cần cải thiện thay vì học lại toàn bộ
 class ResBlock(nn.Module):
     def __init__(self, ch):
         super().__init__()
@@ -178,14 +182,16 @@ class ResBlock(nn.Module):
     def forward(self, x):
         return self.act(x + self.net(x))
 
-
+# Bottleneck Attention là giúp model tập trung vào các vùng đặc trưng liên quan 
+# và học quan hệ toàn cục của ảnh để biểu diễn đặc trưng tốt hơn.
+# CNN chỉ nhìn vùng gần (local), còn Attention giúp model liên kết nhiều vùng trên ảnh với nhau (global).
 class BottleneckAttention(nn.Module):
     def __init__(self, ch):
         super().__init__()
 
-        mid = max(ch // 8, 8)
+        mid = max(ch // 8, 8) # Giảm chiều để đỡ tốn RAM
 
-        self.q = nn.Conv2d(ch, mid, 1)
+        self.q = nn.Conv2d(ch, mid, 1) 
         self.k = nn.Conv2d(ch, mid, 1)
         self.v = nn.Conv2d(ch, ch, 1)
         self.out = nn.Conv2d(ch, ch, 1)
@@ -197,12 +203,14 @@ class BottleneckAttention(nn.Module):
 
         q = self.q(x).view(b, -1, h * w).permute(0, 2, 1)
         k = self.k(x).view(b, -1, h * w)
-
-        attn = F.softmax(torch.bmm(q, k) / (q.shape[-1] ** 0.5), dim=-1)
-
+# Tính attention map bằng cách nhân ma trận query và key
+# Đây là độ liên quan giữa các vùng, nếu vùng giống nhau thì trọng số cao, nếu khác nhau thì trọng số thấp, 
+# sau đó chuẩn hóa bằng softmax để có trọng số attention cho mỗi vị trí
+        attn = F.softmax(torch.bmm(q, k) / (q.shape[-1] ** 0.5), dim=-1) 
+# Model lấy thông tin từ những vùng mà attention cho là liên quan rồi cộng vào feature hiện tại.
         v = self.v(x).view(b, c, h * w)
-        out = torch.bmm(v, attn.permute(0, 2, 1)).view(b, c, h, w)
-
+        out = torch.bmm(v, attn.permute(0, 2, 1)).view(b, c, h, w) 
+# Giữ feature gốc và cộng thêm thông tin attention đã học được.
         return x + self.gamma * self.out(out)
 
 
@@ -214,17 +222,17 @@ class AttentionAE(nn.Module):
     def __init__(self, noise_std=0.05):
         super().__init__()
         self.noise_std = noise_std
-
+#
         self.enc1 = nn.Sequential(
-            nn.Conv2d(3, 32, 3, 2, 1),
+            nn.Conv2d(3, 32, 3, 2, 1), # 256x256 -> 128x128 trích xuất đặc trưng ở 32 kênh: học cơ bản
             nn.BatchNorm2d(32),
             nn.LeakyReLU(0.2),
-            ResBlock(32),
-            SEBlock(32),
+            ResBlock(32), # Giữ feature gốc và chỉ học thêm phần đặc trưng cần cải thiện 
+            SEBlock(32), # Chọn feature quan trọng
         )
 
         self.enc2 = nn.Sequential(
-            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.Conv2d(32, 64, 3, 2, 1), # 128x128 -> 64x64 trích xuất đặc trưng ở 64 kênh: học chi tiết hơn
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2),
             ResBlock(64),
@@ -232,7 +240,7 @@ class AttentionAE(nn.Module):
         )
 
         self.enc3 = nn.Sequential(
-            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.Conv2d(64, 128, 3, 2, 1), # 64x64 -> 32x32 trích xuất đặc trưng ở 128 kênh: học phức tạp.
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2),
             ResBlock(128),
@@ -240,43 +248,43 @@ class AttentionAE(nn.Module):
         )
 
         self.enc4 = nn.Sequential(
-            nn.Conv2d(128, 256, 3, 2, 1),
+            nn.Conv2d(128, 256, 3, 2, 1), # 32x32 -> 16x16 trích xuất đặc trưng ở 256 kênh.
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2),
             ResBlock(256),
             SEBlock(256),
         )
 
-        self.bottleneck = BottleneckAttention(256)
-
+        self.bottleneck = BottleneckAttention(256) # Học quan hệ giữa các vung feature map
+# Tái tạo ảnh từ đặc trưng đã học
         self.dec4 = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1), # 16x16 -> 32x32 giải nén đặc trưng từ 256 kênh về 128 kênh
             nn.BatchNorm2d(128),
             nn.ReLU(),
             ResBlock(128),
         )
 
         self.dec3 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1), # 32x32 -> 64x64 giải nén đặc trưng từ 128 kênh về 64 kênh
             nn.BatchNorm2d(64),
             nn.ReLU(),
             ResBlock(64),
         )
 
         self.dec2 = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, 3, 2, 1, 1),
+            nn.ConvTranspose2d(64, 32, 3, 2, 1, 1), # 64x64 -> 128x128 giải nén đặc trưng từ 64 kênh về 32 kênh
             nn.BatchNorm2d(32),
             nn.ReLU(),
             ResBlock(32),
         )
 
         self.dec1 = nn.Sequential(
-            nn.ConvTranspose2d(32, 3, 3, 2, 1, 1),
-            nn.Sigmoid(),
+            nn.ConvTranspose2d(32, 3, 3, 2, 1, 1), # 128x128 -> 256x256 giải nén đặc trưng từ 32 kênh về 3 kênh (ảnh RGB)
+            nn.Sigmoid(), # Đảm bảo đầu ra nằm trong khoảng [0, 1] để tái tạo ảnh tốt hơn
         )
 
     def _add_noise(self, x):
-        noise = torch.randn_like(x) * self.noise_std
+        noise = torch.randn_like(x) * self.noise_std # Thêm nhiễu Gaussian vào ảnh đầu vào để model học cách tái tạo ảnh từ dữ liệu bị nhiễu
         return torch.clamp(x + noise, 0.0, 1.0)
 
     def forward(self, x, add_noise=False):
@@ -295,14 +303,14 @@ class AttentionAE(nn.Module):
         d = self.dec2(d)
 
         return self.dec1(d)
-
+# Hàm để lấy đặc trưng từ bottleneck, dùng để tính feature score sau này
     def get_features(self, x):
         e1 = self.enc1(x)
         e2 = self.enc2(e1)
         e3 = self.enc3(e2)
         e4 = self.enc4(e3)
         return self.bottleneck(e4)
-
+# So feature ở nhiều mức khác nhau giúp phát hiện ảnh lỗi chính xác hơn
     def get_multiscale_features(self, x):
         e1 = self.enc1(x)
         e2 = self.enc2(e1)
@@ -315,6 +323,7 @@ class AttentionAE(nn.Module):
 # =========================
 # LOSSES
 # =========================
+# SSIM Loss dùng để đo mức độ giống nhau về cấu trúc giữa ảnh gốc và ảnh tái tạo, bao gồm độ sáng, độ tương phản và texture cục bộ.
 class SSIMLoss(nn.Module):
     def __init__(self, window_size=11, C1=0.01 ** 2, C2=0.03 ** 2):
         super().__init__()
@@ -347,7 +356,8 @@ class SSIMLoss(nn.Module):
         ssim = num / (den + 1e-8)
         return 1.0 - ssim.mean()
 
-
+# PerceptualFeatureExtractor sử dụng ResNet-18 chỉ dùng để trích xuất đặc trưng ảnh, 
+# giúp mô hình không chỉ tái tạo đúng pixel mà còn giữ được texture và cấu trúc ảnh tốt hơn.
 class PerceptualFeatureExtractor(nn.Module):
     def __init__(self):
         super().__init__()
@@ -385,7 +395,7 @@ class PerceptualFeatureExtractor(nn.Module):
         x = (x - self.mean) / self.std
         return self.features(x)
 
-
+# Đánh giá ảnh tái tạo (pred) giống ảnh gốc (target) tới mức nào bằng nhiều góc nhìn khác nhau: MSE, SSIM, và Perceptual.
 class CombinedLoss(nn.Module):
     def __init__(self, alpha=0.65, beta=0.25, gamma=0.10):
         super().__init__()
@@ -419,6 +429,7 @@ class CombinedLoss(nn.Module):
 # =========================
 # DATASET
 # =========================
+
 class NormalDataset(Dataset):
     def __init__(self, images, augment=False):
         self.images = images
@@ -666,7 +677,7 @@ def forward_model(model, model_name, x, train_mode=False):
 
     return model(x)
 
-
+ 
 def build_criterion(model_name):
     if model_name == "advanced":
         return CombinedLoss(alpha=0.65, beta=0.25, gamma=0.10).to(DEVICE)
@@ -693,6 +704,8 @@ def build_optimizer(model, optimizer_name, weight_decay=0.0):
 # =========================
 # SCORE
 # =========================
+# Pixel score đo mức độ khác biệt về pixel giữa ảnh gốc và ảnh tái tạo, giúp phát hiện lỗi có kích thước lớn hoặc rõ ràng.
+# Feature score đo mức độ khác biệt về đặc trưng giữa ảnh gốc và ảnh tái tạo, giúp phát hiện lỗi có kích thước nhỏ hoặc tinh vi mà pixel score có thể
 def compute_scores(model, model_name, images, return_errmaps=False):
     tf = transforms.ToTensor()
     model.eval()
@@ -714,11 +727,11 @@ def compute_scores(model, model_name, images, return_errmaps=False):
         for img in images:
             x = tf(img).unsqueeze(0).to(DEVICE)
             out = forward_model(model, model_name, x, train_mode=False)
-
-            diff = (out - x) ** 2
-            err_map = diff.squeeze().cpu().numpy().mean(axis=0)
-            pixel_score = float(diff.mean().item())
-
+# Tính toán độ sai lệch giữa ảnh gốc và ảnh tái tạo
+            diff = (out - x) ** 2 # (ảnh tái tạo - ảnh gốc) ** 2
+            err_map = diff.squeeze().cpu().numpy().mean(axis=0) # heatmap lỗi: pixel sáng hơn = lỗi nhiều hơn
+            pixel_score = float(diff.mean().item()) #trung bình diff(ma trận) score càng lớn -> ảnh càng bất thường
+# Nếu dùng model 2
             if is_adv:
                 fx = model.get_multiscale_features(x)
                 fo = model.get_multiscale_features(out)
@@ -737,6 +750,7 @@ def compute_scores(model, model_name, images, return_errmaps=False):
             else:
                 fxb = model.get_features(x)
                 fob = model.get_features(out)
+                # (encoder feature gốc - encoder feature tái tạo) ** 2 trung bình score càng lớn -> ảnh càng bất thường
                 feature_score = float(((fxb - fob) ** 2).mean().item())
 
             pixel_scores.append(pixel_score)
@@ -767,7 +781,7 @@ def find_best_threshold_youden(scores, labels):
 def find_val_threshold(val_scores, percentile=95):
     return float(np.percentile(val_scores, percentile))
 
-
+# Tìm ngưỡng tối ưu trên tập test bằng cách thử nhiều ngưỡng khác nhau và chọn ngưỡng nào cho F1-score cao nhất.
 def find_best_threshold_f1(scores, labels):
     thresholds = np.linspace(float(scores.min()), float(scores.max()), 300)
 
@@ -1143,7 +1157,20 @@ def train_experiment(
         os.path.join(exp_dir, "sample_heatmaps"),
         max_samples=8
     )
-
+    # =========================
+# SELECT SCORE FOR REPORT
+# =========================
+    if model_name == "baseline":
+        selected_method = "pixel_val95"
+        selected_score = "pixel_score"
+    else:
+    # advanced: so sánh pixel vs feature
+        if auroc_feature > auroc_pixel:
+            selected_method = "feature_val95"
+            selected_score = "feature_score"
+        else:
+            selected_method = "pixel_val95"
+            selected_score = "pixel_score"
     metrics = {
         "dataset": dataset_name,
         "model_name": model_name,
@@ -1165,12 +1192,12 @@ def train_experiment(
         "threshold_feature_f1": threshold_feature_f1,
         "threshold_combined_f1": threshold_combined_f1,
 
-        "threshold_pixel": threshold_pixel_f1,
-        "threshold_feature": threshold_feature_f1,
-        "threshold_combined": threshold_combined_f1,
+        "threshold_pixel": threshold_pixel_val,
+        "threshold_feature": threshold_feature_val,
+        "threshold_combined": threshold_combined_val,
 
-        "selected_threshold_method": "combined_f1",
-        "selected_score": "combined_score",
+        "selected_threshold_method": selected_method,
+        "selected_score": selected_score,
         "combined_pixel_weight": COMBINED_PIXEL_W,
         "combined_feature_weight": COMBINED_FEATURE_W,
 

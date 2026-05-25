@@ -267,27 +267,14 @@ class UI:
         return (score - mn) / (mx - mn + 1e-8)
 
     def get_selected_score_and_threshold(self, pixel_score, feature_score, combined_score):
-        selected_score = self.metrics.get("selected_score", "pixel_score")
-
-        if selected_score == "combined_score":
-            return (
-                combined_score,
-                float(self.metrics.get("threshold_combined", 0.0)),
-                "combined",
-            )
-
-        if selected_score == "feature_score":
-            return (
-                feature_score,
-                float(self.metrics.get("threshold_feature", 0.0)),
-                "feature",
-            )
-
-        return (
-            pixel_score,
-            float(self.metrics.get("threshold_pixel", 0.0)),
-            "pixel",
-        )
+        model_name = self.combo_model.currentText()
+        if model_name == "baseline":
+            return pixel_score, float(self.metrics.get("threshold_pixel", 0.0)), "pixel"
+        pixel_auc = float(self.metrics.get("auroc_pixel", 0.0))
+        feature_auc = float(self.metrics.get("auroc_feature", 0.0))
+        if feature_auc > pixel_auc:
+            return feature_score, float(self.metrics.get("threshold_feature", 0.0)), "feature"
+        return pixel_score, float(self.metrics.get("threshold_pixel", 0.0)), "pixel"
 
     # =========================
     # LOAD EXPERIMENT
